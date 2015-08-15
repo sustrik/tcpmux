@@ -23,6 +23,7 @@
 */
 
 #include <assert.h>
+#include <ctype.h>
 #include <errno.h>
 #include <libmill.h>
 #include <stddef.h>
@@ -35,67 +36,6 @@
 
 #if 0
 
-int handshake(tcpsock ts, unixsock us, char *service, size_t len) {
-    const char *errmsg = NULL;
-    size_t sz;
-    if(ts)
-        sz = tcprecvuntil(ts, service, sizeof(service), "\r", 1, -1);
-    else
-        sz = unixrecvuntil(us, service, sizeof(service), "\r", 1, -1);
-    if(errno == ENOBUFS) {
-        errmsg = "Service name too long";
-        goto error1;
-    }
-    if(errno != 0) {
-        assert(0); /* TODO: Retry... */
-    }
-    service[sz - 1] = 0;
-    size_t i;
-    for(i = 0; i != sz - 1; ++i) {
-        if(service[i] < 32 || service[i] > 127) {
-            errmsg = "Service name contains invalid character";
-            goto error1;
-        }
-    }
-    char c;
-    if(ts)
-        tcprecv(ts, &c, 1, -1);
-    else
-        unixrecv(us, &c, 1, -1);
-    if(errno != 0 || c != '\n') {
-        errmsg = "Service name contains invalid character";
-        goto error1;
-    }
-    return 0;
-
-error1:
-    if(ts)
-        tcpsend(ts, "-", 1, -1);
-    else
-        unixsend(us, "-", 1, -1);
-    if(errno != 0) goto error2;
-    if(ts)
-        tcpsend(ts, errmsg, strlen(errmsg), -1);
-    else
-        unixsend(us, errmsg, strlen(errmsg), -1);
-    if(errno != 0) goto error2;
-    if(ts)
-        tcpsend(ts, "\r\n", 2, -1);
-    else
-        unixsend(us, "\r\n", 2, -1);
-    if(errno != 0) goto error2;
-    if(ts)
-        tcpflush(ts, -1);
-    else
-        unixflush(us, -1);
-error2:
-    if(ts)
-        tcpclose(ts);
-    else
-        unixclose(us);
-    return -1;
-}
-
 struct registration {
     struct list_item item;
     const char *service;
@@ -103,33 +43,6 @@ struct registration {
 };
 
 struct list registrations = {0};
-
-void tcphandler(tcpsock ts) {
-    char service[256];
-    int rc = handshake(ts, NULL, service, sizeof(service));
-    if(rc != 0)
-        return;
-    /* Find the service in the registration list. */
-    struct list_item *it;
-    chan ch;
-    for(it = list_begin(&registrations); it; it = list_next(it)) {
-        struct registration *r = cont(it, struct registration, item);
-        if(strcmp(service, r->service) == 0) {
-            ch = r->ch;
-            break;
-        }
-    }
-    if(!it) {
-         tcpsend(ts, "-Unknown serice\r\n", 17, -1);
-         if(errno != 0) goto error;
-         tcpflush(ts, -1);
-    error:
-         tcpclose(ts);
-         return;
-    }
-    /* Pass the TCP socket to the service handler. */
-    chs(ch, tcpsock, ts);
-}
 
 void registration(unixsock us) {
     char service[256];
@@ -185,7 +98,73 @@ void registration(unixsock us) {
         assert(rc == 1);
         tcpclose(ts);
     }
- }
+}
+
+#endif
+
+struct sockmodel {
+    struct sock_ {enum type_ {TYPE} type;} sock;
+    int fd;
+};
+
+/* The function does no buffering. Any characters past the <CRLF> will
+   remain in socket's rx buffer. */
+size_t recvoneline(int fd, char *buf, size_t len) {
+    size_t i;
+    for(i = 0; i != len; ++i) {
+        int rc = fdwait(fd, FDW_IN, -1);
+        assert(rc == FDW_IN);
+        ssize_t sz = recv(fd, &buf[i], 1, 0);
+        assert(sz == 1);
+        if(i > 0 && buf[i - 1] == '\r' && buf[i] == '\n') {
+            buf[i - 1] = 0;
+            errno = 0;
+            return i - 1;
+        }
+    }
+    errno = ENOBUFS;
+    return len;
+}
+
+void tcphandler(tcpsock s) {
+    const char *errmsg = NULL;
+    /* Hacky-hack: Extract the underlying file descriptor! */
+    int fd = ((struct sockmodel*)s)->fd;
+    /* Get the first line (the service name) from the client. */
+    char service[256];
+    size_t sz = recvoneline(fd, service, sizeof(service));
+    if(errno == ENOBUFS) {
+        const char *errmsg = "-Service name too long\r\n";
+        goto reply;
+    }
+    assert(errno == 0);
+    size_t i;
+    for(i = 0; i != sz; ++i) {
+        if(service[i] < 32 || service[i] > 127) {
+            errmsg = "-Service name contains invalid character\r\n";
+            goto reply;
+        }
+        service[i] = tolower(service[i]);
+    }
+    /* TODO: Find the registration... */
+    errmsg = "+\r\n";
+reply:
+    /* Reply to the TCP peer. */
+    tcpsend(s, errmsg, strlen(errmsg), -1);
+    if(errno != 0) {
+        tcpclose(s);
+        return;
+    }
+    tcpflush(s, -1);
+    if(errno != 0) {
+        tcpclose(s);
+        return;
+    }
+    if(errmsg[0] == '-')
+       return;
+    /* Pass the socket to the registered service. */
+    assert(0);
+}
 
 void tcplistener(tcpsock ls) {
     while(1) {
@@ -194,7 +173,45 @@ void tcplistener(tcpsock ls) {
     }
 }
 
-#endif
+void unixhandler(unixsock s) {
+    const char *errmsg = NULL;
+    /* Hacky-hack: Extract the underlying file descriptor! */
+    int fd = ((struct sockmodel*)s)->fd;
+    /* Get the first line (the service name) from the peer. */
+    char service[256];
+    size_t sz = recvoneline(fd, service, sizeof(service));
+    if(errno == ENOBUFS) {
+        const char *errmsg = "-Service name too long\r\n";
+        goto reply;
+    }
+    assert(errno == 0);
+    size_t i;
+    for(i = 0; i != sz; ++i) {
+        if(service[i] < 32 || service[i] > 127) {
+            errmsg = "-Service name contains invalid character\r\n";
+            goto reply;
+        }
+        service[i] = tolower(service[i]);
+    }
+    /* TODO: Check whether the reistration already exists. */
+    errmsg = "+\r\n";
+reply:
+    /* Reply to the service. */
+    unixsend(s, errmsg, strlen(errmsg), -1);
+    if(errno != 0) {
+        unixclose(s);
+        return;
+    }
+    unixflush(s, -1);
+    if(errno != 0) {
+        unixclose(s);
+        return;
+    }
+    if(errmsg[0] == '-')
+       return;
+    /* TODO */
+    assert(0);
+}
 
 int main(int argc, char *argv[]) {
     /*  Deal with the command line. */
@@ -215,20 +232,19 @@ int main(int argc, char *argv[]) {
         perror("Cannot bind to local network interface");
         return 1;
     }
-    //go(tcplistener(ls));
-    /* Start listening for registrations. */
+    go(tcplistener(ls));
+    /* Start listening for registrations from local processes. */
     char fname[64];
     snprintf(fname, sizeof(fname), "/tmp/tcpmuxd.%d", port);
-    unixsock rs = unixlisten(fname, 10);
-    if(!rs) {
+    unixsock us = unixlisten(fname, 10);
+    if(!us) {
         perror("Cannot bind to file");
         return 1;
     }
     /* Process new registrations as they arrive. */
     while(1) {
-        unixsock s = unixaccept(rs, -1);
-        //go(registration(s));
+        unixsock s = unixaccept(us, -1);
+        go(unixhandler(s));
     }
 }
-
 

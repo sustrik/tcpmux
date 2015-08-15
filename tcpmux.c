@@ -33,7 +33,12 @@ tcpmuxsock tcpmuxlisten(int port, const char *service) {
     assert(0);
 }
 
-tcpsock tcpmuxaccept(tcpmuxsock s) {
+tcpsock tcpmuxaccept(tcpmuxsock s, int64_t deadline) {
+    assert(0);
+}
+
+tcpsock tcpmuxconnect(ipaddr addr, int port, const char *service,
+      int64_t deadline) {
     assert(0);
 }
 
