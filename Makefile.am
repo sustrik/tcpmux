@@ -34,13 +34,7 @@ tcpmuxinclude_HEADERS = tcpmux.h
 lib_LTLIBRARIES = libtcpmux.la
 
 libtcpmux_la_SOURCES = \
-    list.h\
-    list.c\
-    tcp.h\
-    tcp.c\
-    tcpmux.c\
-    unix.h\
-    unix.c
+    tcpmux.c
 
 pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = tcpmux.pc
@@ -64,6 +58,11 @@ TESTS = $(check_PROGRAMS)
 ################################################################################
 #  tcpmuxd                                                                     #
 ################################################################################
+
+tcpmuxd_SOURCES = \
+    list.h\
+    list.c\
+    tcpmuxd.c
 
 noinst_PROGRAMS = tcpmuxd
 

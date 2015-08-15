@@ -33,74 +33,20 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/uio.h>
+#include <unistd.h>
 
-#if 0
+#include "list.h"
 
-struct registration {
-    struct list_item item;
-    const char *service;
+#define cont(ptr, type, member) \
+    (ptr ? ((type*) (((char*) ptr) - offsetof(type, member))) : NULL)
+
+struct service {
+    struct tcpmux_list_item item;
+    const char *name;
     chan ch;
 };
 
-struct list registrations = {0};
-
-void registration(unixsock us) {
-    char service[256];
-    int rc = handshake(NULL, us, service, sizeof(service));
-    if(rc != 0)
-        return;
-    /* Check whether the service is already registered. */
-    struct list_item *it;
-    for(it = list_begin(&registrations); it; it = list_next(it)) {
-        struct registration *r = cont(it, struct registration, item);
-        if(strcmp(service, r->service) == 0)
-            break;
-    }
-    if(it) {
-         unixsend(us, "-Service already exists\r\n", 25, -1);
-         if(errno != 0) goto error;
-         unixflush(us, -1);
-    error:
-         unixclose(us);
-         return;
-    }
-    /* Register the service. */
-    struct registration r;
-    r.service = service;
-    r.ch = chmake(tcpsock, 0);
-    list_insert(&registrations, &r.item, NULL);
-    /* Wait for incoming TCP connections. */
-    while(1) {
-        tcpsock ts = chr(r.ch, tcpsock);
-        /* Send the file descriptor to the registered process. */
-        struct iovec iov;
-        unsigned char buf[] = {0x55};
-        iov.iov_base = buf;
-        iov.iov_len = 1;
-        struct msghdr msg;
-        memset(&msg, 0, sizeof (msg));
-        msg.msg_iov = &iov;
-        msg.msg_iovlen = 1;
-        char control [sizeof(struct cmsghdr) + 10];
-        msg.msg_control = control;
-        msg.msg_controllen = sizeof(control);
-        struct cmsghdr *cmsg;
-        cmsg = CMSG_FIRSTHDR(&msg);
-        cmsg->cmsg_level = SOL_SOCKET;
-        cmsg->cmsg_type = SCM_RIGHTS;
-        cmsg->cmsg_len = CMSG_LEN(sizeof(ts->fd));
-        *((int*)CMSG_DATA(cmsg)) = ts->fd;
-        msg.msg_controllen = cmsg->cmsg_len;
-        rc = sendmsg(us->fd, &msg, 0);
-        if (rc == -1) {
-            assert(0); /* TODO */
-        }
-        assert(rc == 1);
-        tcpclose(ts);
-    }
-}
-
-#endif
+struct tcpmux_list services = {0};
 
 struct sockmodel {
     struct sock_ {enum type_ {TYPE} type;} sock;
@@ -146,7 +92,18 @@ void tcphandler(tcpsock s) {
         }
         service[i] = tolower(service[i]);
     }
-    /* TODO: Find the registration... */
+    /* Find the registered service. */
+    struct tcpmux_list_item *it;
+    struct service *srvc;
+    for(it = tcpmux_list_begin(&services); it; it = tcpmux_list_next(it)) {
+        srvc = cont(it, struct service, item);
+        if(strcmp(service, srvc->name) == 0)
+            break;
+    }
+    if(!it) {
+        errmsg = "-Service not found\r\n";
+        goto reply;
+    }  
     errmsg = "+\r\n";
 reply:
     /* Reply to the TCP peer. */
@@ -160,10 +117,16 @@ reply:
         tcpclose(s);
         return;
     }
-    if(errmsg[0] == '-')
-       return;
-    /* Pass the socket to the registered service. */
-    assert(0);
+    if(errmsg[0] == '-') {
+        tcpclose(s);
+        return;
+    }
+    /* Close tcpsock object without closing the underlying file descriptor. */
+    fd = dup(fd);
+    assert(fd != -1);
+    tcpclose(s);
+    /* Send the fd to the unixhandler connected to the service in question. */
+    chs(srvc->ch, int, fd);
 }
 
 void tcplistener(tcpsock ls) {
@@ -193,7 +156,22 @@ void unixhandler(unixsock s) {
         }
         service[i] = tolower(service[i]);
     }
-    /* TODO: Check whether the reistration already exists. */
+    /* Check whether the service is already registered. */
+    struct tcpmux_list_item *it;
+    for(it = tcpmux_list_begin(&services); it; it = tcpmux_list_next(it)) {
+        struct service *srvc = cont(it, struct service, item);
+        if(strcmp(service, srvc->name) == 0)
+            break;
+    }
+    if(!it) {
+        errmsg = "-Service already exists\r\n";
+        goto reply;
+    }
+    struct service self;
+    self.name = service;
+    self.ch = chmake(int, 0);
+    assert(self.ch);
+    tcpmux_list_insert(&services, &self.item, NULL);
     errmsg = "+\r\n";
 reply:
     /* Reply to the service. */
@@ -209,8 +187,33 @@ reply:
     }
     if(errmsg[0] == '-')
        return;
-    /* TODO */
-    assert(0);
+    /* Wait for new incoming connections. Send them to the service. */
+    while(1) {
+        int tcpfd = chr(self.ch, int);
+        struct iovec iov;
+        unsigned char buf[] = {0x55};
+        iov.iov_base = buf;
+        iov.iov_len = 1;
+        struct msghdr msg;
+        memset(&msg, 0, sizeof (msg));
+        msg.msg_iov = &iov;
+        msg.msg_iovlen = 1;
+        char control [sizeof(struct cmsghdr) + 10];
+        msg.msg_control = control;
+        msg.msg_controllen = sizeof(control);
+        struct cmsghdr *cmsg;
+        cmsg = CMSG_FIRSTHDR(&msg);
+        cmsg->cmsg_level = SOL_SOCKET;
+        cmsg->cmsg_type = SCM_RIGHTS;
+        cmsg->cmsg_len = CMSG_LEN(sizeof(tcpfd));
+        *((int*)CMSG_DATA(cmsg)) = tcpfd;
+        msg.msg_controllen = cmsg->cmsg_len;
+        int rc = sendmsg(fd, &msg, 0);
+        if (rc == -1) {
+            assert(0); /* TODO */
+        }
+        assert(rc == 1);
+    }
 }
 
 int main(int argc, char *argv[]) {
