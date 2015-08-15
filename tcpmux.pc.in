@@ -3,10 +3,10 @@ exec_prefix=@exec_prefix@
 libdir=@libdir@
 includedir=@includedir@
 
-Name: libmill
-Description: Go-style concurrency in C
+Name: tcpmux
+Description: TCP multiplexer (RFC 1078)
 URL: http://libmill.org/
-Version: @NN_ABI_VERSION@
+Version: @TCPMUX_ABI_VERSION@
 Requires:
-Libs: -L${libdir} -lmill @LIBS@
+Libs: -L${libdir} -ltcpmux @LIBS@
 Cflags: -I${includedir}

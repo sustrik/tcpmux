@@ -28,26 +28,26 @@ DISTCLEANFILES = @DOLT_CLEANFILES@
 #  tcpmux                                                                      #
 ################################################################################
 
-millincludedir = $(includedir)
-millinclude_HEADERS = tcpmux.h
+tcpmuxincludedir = $(includedir)
+tcpmuxinclude_HEADERS = tcpmux.h
 
-lib_LTLIBRARIES = tcpmux.la
+lib_LTLIBRARIES = libtcpmux.la
 
-libmill_la_SOURCES = \
+libtcpmux_la_SOURCES = \
     list.h\
     list.c\
     tcp.h\
     tcp.c\
     tcpmux.c\
     unix.h\
-    unix.c\
+    unix.c
 
 pkgconfigdir = $(libdir)/pkgconfig
 pkgconfig_DATA = tcpmux.pc
 
-libmill_la_LDFLAGS = -no-undefined -version-info @MILL_TCPMUX_VERSION@
+libtcpmux_la_LDFLAGS = -no-undefined -version-info @TCPMUX_LIBTOOL_VERSION@
 
-libmill_la_CFLAGS = \
+libtcpmux_la_CFLAGS = \
     -fvisibility=hidden\
     -DTCPMUX_EXPORTS
 
@@ -65,7 +65,7 @@ TESTS = $(check_PROGRAMS)
 #  tcpmuxd                                                                     #
 ################################################################################
 
-noinst_PROGRAMS += tcpmuxd
+noinst_PROGRAMS = tcpmuxd
 
 ################################################################################
 #  additional packaging-related stuff                                          #
