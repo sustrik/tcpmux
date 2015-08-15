@@ -21,3 +21,23 @@
   IN THE SOFTWARE.
 
 */
+
+#include <assert.h>
+
+#include "tcpmux.h"
+
+struct tcpmuxsock {
+};
+
+tcpmuxsock tcpmuxlisten(int port, const char *service) {
+    assert(0);
+}
+
+tcpsock tcpmuxaccept(tcpmuxsock s) {
+    assert(0);
+}
+
+void tcpmuxclose(tcpmuxsock s) {
+    assert(0);
+}
+

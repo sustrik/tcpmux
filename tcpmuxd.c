@@ -33,43 +33,7 @@
 #include <sys/types.h>
 #include <sys/uio.h>
 
-/******************************************************************************/
-/* Doubly linked list                                                         */
-/******************************************************************************/
-
-#define cont(ptr, type, member) \
-    (ptr ? ((type*) (((char*) ptr) - offsetof(type, member))) : NULL)
-
-struct list_item {
-    struct list_item *next;
-    struct list_item *prev;
-};
-
-struct list {
-    struct list_item *first;
-    struct list_item *last;
-};
-
-struct list_item *list_begin(struct list *self) {
-    return self->first;
-}
-
-struct list_item *list_next(struct list_item *it) {
-    return it->next;
-}
-
-void list_insert(struct list *self, struct list_item *item,
-      struct list_item *it) {
-    assert(0);
-}
-
-struct list_item *list_erase(struct list *self, struct list_item *item) {
-    assert(0);
-}
-
-/******************************************************************************/
-/* tcpmuxd                                                                    */
-/******************************************************************************/
+#if 0
 
 int handshake(tcpsock ts, unixsock us, char *service, size_t len) {
     const char *errmsg = NULL;
@@ -230,6 +194,8 @@ void tcplistener(tcpsock ls) {
     }
 }
 
+#endif
+
 int main(int argc, char *argv[]) {
     /*  Deal with the command line. */
     if(argc > 2) {
@@ -249,7 +215,7 @@ int main(int argc, char *argv[]) {
         perror("Cannot bind to local network interface");
         return 1;
     }
-    go(tcplistener(ls));
+    //go(tcplistener(ls));
     /* Start listening for registrations. */
     char fname[64];
     snprintf(fname, sizeof(fname), "/tmp/tcpmuxd.%d", port);
@@ -261,6 +227,8 @@ int main(int argc, char *argv[]) {
     /* Process new registrations as they arrive. */
     while(1) {
         unixsock s = unixaccept(rs, -1);
-        go(registration(s));
+        //go(registration(s));
     }
 }
+
+

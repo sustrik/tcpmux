@@ -25,6 +25,8 @@
 #ifndef TCPMUX_H_INCLUDED
 #define TCPMUX_H_INCLUDED
 
+#include <libmill.h>
+
 /******************************************************************************/
 /*  ABI versioning support                                                    */
 /******************************************************************************/
@@ -72,7 +74,11 @@
 /*  tcpmux library                                                            */
 /******************************************************************************/
 
-/* TODO */
+typedef struct tcpmuxsock *tcpmuxsock;
+
+TCPMUX_EXPORT tcpmuxsock tcpmuxlisten(int port, const char *service);
+TCPMUX_EXPORT tcpsock tcpmuxaccept(tcpmuxsock s);
+TCPMUX_EXPORT void tcpmuxclose(tcpmuxsock s);
 
 #endif
 
