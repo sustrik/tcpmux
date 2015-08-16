@@ -69,22 +69,18 @@ size_t recvoneline(int fd, char *buf, size_t len) {
 }
 
 void tcphandler(tcpsock s) {
-    const char *errmsg = NULL;
+    int success = 0;
     /* Get the first line (the service name) from the client. */
     char service[256];
     int fd = tcpdetach(s);
     size_t sz = recvoneline(fd, service, sizeof(service));
-    if(errno == ENOBUFS) {
-        const char *errmsg = "-Service name too long\r\n";
+    if(errno == ENOBUFS)
         goto reply;
-    }
     assert(errno == 0);
     size_t i;
     for(i = 0; i != sz; ++i) {
-        if(service[i] < 32 || service[i] > 127) {
-            errmsg = "-Service name contains invalid character\r\n";
+        if(service[i] < 32 || service[i] > 127)
             goto reply;
-        }
         service[i] = tolower(service[i]);
     }
     /* Find the registered service. */
@@ -95,15 +91,14 @@ void tcphandler(tcpsock s) {
         if(strcmp(service, srvc->name) == 0)
             break;
     }
-    if(!it) {
-        errmsg = "-Service not found\r\n";
+    if(!it)
         goto reply;
-    }  
-    errmsg = "+\r\n";
+    success = 1;
 reply:
     /* Reply to the TCP peer. */
     s = tcpattach(fd);
-    tcpsend(s, errmsg, strlen(errmsg), -1);
+    const char *msg = success ? "+\r\n" : "-Service not found\r\n";
+    tcpsend(s, msg, strlen(msg), -1);
     if(errno != 0) {
         tcpclose(s);
         return;
@@ -113,7 +108,7 @@ reply:
         tcpclose(s);
         return;
     }
-    if(errmsg[0] == '-') {
+    if(!success) {
         tcpclose(s);
         return;
     }
@@ -135,14 +130,14 @@ void unixhandler(unixsock s) {
     int fd = unixdetach(s);
     size_t sz = recvoneline(fd, service, sizeof(service));
     if(errno == ENOBUFS) {
-        const char *errmsg = "-Service name too long\r\n";
+        const char *errmsg = "-1: Service name too long\r\n";
         goto reply;
     }
     assert(errno == 0);
     size_t i;
     for(i = 0; i != sz; ++i) {
         if(service[i] < 32 || service[i] > 127) {
-            errmsg = "-Service name contains invalid character\r\n";
+            errmsg = "-2: Service name contains invalid character\r\n";
             goto reply;
         }
         service[i] = tolower(service[i]);
@@ -155,7 +150,7 @@ void unixhandler(unixsock s) {
             break;
     }
     if(it) {
-        errmsg = "-Service already exists\r\n";
+        errmsg = "-3: Service already exists\r\n";
         goto reply;
     }
     struct service self;
@@ -165,9 +160,12 @@ void unixhandler(unixsock s) {
     tcpmux_list_insert(&services, &self.item, NULL);
     errmsg = "+\r\n";
 reply:
-    printf("++++ %s\n", errmsg);
     /* Reply to the service. */
     s = unixattach(fd);
+    if(!s) {
+        unixclose(s);
+        return;
+    }
     unixsend(s, errmsg, strlen(errmsg), -1);
     if(errno != 0) {
         unixclose(s);
@@ -184,6 +182,7 @@ reply:
     fd = unixdetach(s);
     while(1) {
         int tcpfd = chr(self.ch, int);
+        /* Send the fd to the serivce via UNIX connection. */
         struct iovec iov;
         unsigned char buf[] = {0x55};
         iov.iov_base = buf;
@@ -203,10 +202,8 @@ reply:
         *((int*)CMSG_DATA(cmsg)) = tcpfd;
         msg.msg_controllen = cmsg->cmsg_len;
         int rc = sendmsg(fd, &msg, 0);
-        if (rc == -1) {
-            assert(0); /* TODO */
-        }
-        assert(rc == 1);
+        if (rc != 1)
+            close(tcpfd);
     }
 }
 
@@ -214,8 +211,7 @@ int tcpmuxd(ipaddr addr) {
     tcpsock ls = tcplisten(addr, 10);
     if(!ls)
         return -1;
-    go(tcplistener(ls));
-    /* Start listening for registrations from local processes. */
+    /* Start listening for registrations from local services. */
     char fname[64];
     snprintf(fname, sizeof(fname), "/tmp/tcpmuxd.%d", tcpport(ls));
     /* This will kick the file from underneath a different instance of
@@ -224,8 +220,12 @@ int tcpmuxd(ipaddr addr) {
        TODO: On Linux we may get around it by using abstract namespace. */
     unlink(fname);
     unixsock us = unixlisten(fname, 10);
-    if(!us)
+    if(!us) {
+        tcpclose(ls);
         return -1;
+    }
+    /* Start accepting TCP connections from clients. */
+    go(tcplistener(ls));
     /* Process new registrations as they arrive. */
     while(1) {
         unixsock s = unixaccept(us, -1);
