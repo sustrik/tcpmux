@@ -10,7 +10,7 @@ same machine.
 
 The package also contains a libmill-compliant client library. 
 
-To build:
+To build you have to install [libmill](http://libmill.org) first. Then:
 
 ```
 ./autogen.sh
