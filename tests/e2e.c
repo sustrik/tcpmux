@@ -28,24 +28,32 @@
 #include "../tcpmux.h"
 
 void daemon(void) {
-    tcpmuxd(iplocal(NULL, 5556, 0));
+    tcpmuxd(iplocal(NULL, 5557, 0));
     assert(0);
 }
 
 void doconnect(void) {
-    ipaddr addr = ipremote("127.0.0.1", 5556, 0, -1);
+    ipaddr addr = ipremote("127.0.0.1", 5557, 0, -1);
     tcpsock s = tcpmuxconnect(addr, "foo", -1);
     assert(s);
+    tcpsend(s, "abc", 3, -1);
+    assert(errno == 0);
+    tcpflush(s, -1);
+    assert(errno == 0);
 }
 
 int main(void) {
     go(daemon());
     msleep(now() + 500);
-    tcpmuxsock ls = tcpmuxlisten(5556, "foo", -1);
+    tcpmuxsock ls = tcpmuxlisten(5557, "foo", -1);
     assert(ls);
     go(doconnect());
     tcpsock s = tcpmuxaccept(ls, -1);
     assert(s);
+    char buf[3];
+    tcprecv(s, buf, sizeof(buf), -1);
+    assert(errno == 0);
+    assert(buf[0] == 'a' && buf[1] == 'b' && buf[2] == 'c');
     tcpclose(s);
     tcpmuxclose(ls);
 

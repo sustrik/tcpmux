@@ -154,7 +154,7 @@ void unixhandler(unixsock s) {
         if(strcmp(service, srvc->name) == 0)
             break;
     }
-    if(!it) {
+    if(it) {
         errmsg = "-Service already exists\r\n";
         goto reply;
     }
@@ -165,6 +165,7 @@ void unixhandler(unixsock s) {
     tcpmux_list_insert(&services, &self.item, NULL);
     errmsg = "+\r\n";
 reply:
+    printf("++++ %s\n", errmsg);
     /* Reply to the service. */
     s = unixattach(fd);
     unixsend(s, errmsg, strlen(errmsg), -1);
@@ -217,6 +218,11 @@ int tcpmuxd(ipaddr addr) {
     /* Start listening for registrations from local processes. */
     char fname[64];
     snprintf(fname, sizeof(fname), "/tmp/tcpmuxd.%d", tcpport(ls));
+    /* This will kick the file from underneath a different instance of
+       tcpmuxd using the same port. Unfortunately, the need for this behaviour
+       is caused by a bug in POSIX and there's no real workaround.
+       TODO: On Linux we may get around it by using abstract namespace. */
+    unlink(fname);
     unixsock us = unixlisten(fname, 10);
     if(!us)
         return -1;
