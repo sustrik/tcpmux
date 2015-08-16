@@ -52,7 +52,8 @@ libtcpmux_la_CFLAGS = \
 #  automated tests                                                             #
 ################################################################################
 
-check_PROGRAMS =
+check_PROGRAMS = \
+    tests/e2e
 
 LDADD = libtcpmux.la
 
