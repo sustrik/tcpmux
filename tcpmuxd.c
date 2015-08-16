@@ -48,11 +48,6 @@ struct service {
 
 struct tcpmux_list services = {0};
 
-struct sockmodel {
-    struct sock_ {enum type_ {TYPE} type;} sock;
-    int fd;
-};
-
 /* The function does no buffering. Any characters past the <CRLF> will
    remain in socket's rx buffer. */
 size_t recvoneline(int fd, char *buf, size_t len) {
@@ -74,10 +69,9 @@ size_t recvoneline(int fd, char *buf, size_t len) {
 
 void tcphandler(tcpsock s) {
     const char *errmsg = NULL;
-    /* Hacky-hack: Extract the underlying file descriptor! */
-    int fd = ((struct sockmodel*)s)->fd;
     /* Get the first line (the service name) from the client. */
     char service[256];
+    int fd = tcpdetach(s);
     size_t sz = recvoneline(fd, service, sizeof(service));
     if(errno == ENOBUFS) {
         const char *errmsg = "-Service name too long\r\n";
@@ -107,6 +101,7 @@ void tcphandler(tcpsock s) {
     errmsg = "+\r\n";
 reply:
     /* Reply to the TCP peer. */
+    s = tcpattach(fd);
     tcpsend(s, errmsg, strlen(errmsg), -1);
     if(errno != 0) {
         tcpclose(s);
@@ -121,12 +116,8 @@ reply:
         tcpclose(s);
         return;
     }
-    /* Close tcpsock object without closing the underlying file descriptor. */
-    fd = dup(fd);
-    assert(fd != -1);
-    tcpclose(s);
     /* Send the fd to the unixhandler connected to the service in question. */
-    chs(srvc->ch, int, fd);
+    chs(srvc->ch, int, tcpdetach(s));
 }
 
 void tcplistener(tcpsock ls) {
@@ -138,10 +129,9 @@ void tcplistener(tcpsock ls) {
 
 void unixhandler(unixsock s) {
     const char *errmsg = NULL;
-    /* Hacky-hack: Extract the underlying file descriptor! */
-    int fd = ((struct sockmodel*)s)->fd;
     /* Get the first line (the service name) from the peer. */
     char service[256];
+    int fd = unixdetach(s);
     size_t sz = recvoneline(fd, service, sizeof(service));
     if(errno == ENOBUFS) {
         const char *errmsg = "-Service name too long\r\n";
@@ -175,6 +165,7 @@ void unixhandler(unixsock s) {
     errmsg = "+\r\n";
 reply:
     /* Reply to the service. */
+    s = unixattach(fd);
     unixsend(s, errmsg, strlen(errmsg), -1);
     if(errno != 0) {
         unixclose(s);
@@ -188,6 +179,7 @@ reply:
     if(errmsg[0] == '-')
        return;
     /* Wait for new incoming connections. Send them to the service. */
+    fd = unixdetach(s);
     while(1) {
         int tcpfd = chr(self.ch, int);
         struct iovec iov;
