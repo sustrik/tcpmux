@@ -10,7 +10,7 @@ same machine.
 
 The package also contains a libmill-compliant client library. 
 
-To build you have to install [libmill](http://libmill.org) first. Then:
+To build it you have to install [libmill](http://libmill.org) first. Then:
 
 ```
 ./autogen.sh
@@ -51,7 +51,7 @@ while(1) {
 ```
 
 Client applications can connect to tcpmux server from anywhere. There's no
-requirement to run tcpmuxd on the box:
+requirement to run tcpmuxd on the client box:
 
 ```
 #include <tcpmux.h>
