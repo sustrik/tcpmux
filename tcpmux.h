@@ -82,7 +82,7 @@ TCPMUX_EXPORT tcpsock tcpmuxaccept(tcpmuxsock s, int64_t deadline);
 TCPMUX_EXPORT tcpsock tcpmuxconnect(ipaddr addr, const char *service,
     int64_t deadline);
 TCPMUX_EXPORT void tcpmuxclose(tcpmuxsock s);
-TCPMUX_EXPORT void tcpmuxd(const char *addr, int port);
+TCPMUX_EXPORT int tcpmuxd(ipaddr addr);
 
 #endif
 

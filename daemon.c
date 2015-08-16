@@ -36,6 +36,7 @@
 #include <unistd.h>
 
 #include "list.h"
+#include "tcpmux.h"
 
 #define cont(ptr, type, member) \
     (ptr ? ((type*) (((char*) ptr) - offsetof(type, member))) : NULL)
@@ -208,34 +209,17 @@ reply:
     }
 }
 
-int main(int argc, char *argv[]) {
-    /*  Deal with the command line. */
-    if(argc > 2) {
-        fprintf(stderr, "usage: tcpmuxd [port]\n");
-        return 1;
-    }
-    int port = 1;
-    if(argc == 2) port = atoi(argv[1]);
-    /* Start listening for the incoming connections. */
-    ipaddr addr = iplocal(NULL, port, 0);
-    if(errno != 0) {
-        perror("Cannot resolve local network address");
-        return 1;
-    }
+int tcpmuxd(ipaddr addr) {
     tcpsock ls = tcplisten(addr, 10);
-    if(!ls) {
-        perror("Cannot bind to local network interface");
-        return 1;
-    }
+    if(!ls)
+        return -1;
     go(tcplistener(ls));
     /* Start listening for registrations from local processes. */
     char fname[64];
-    snprintf(fname, sizeof(fname), "/tmp/tcpmuxd.%d", port);
+    snprintf(fname, sizeof(fname), "/tmp/tcpmuxd.%d", tcpport(ls));
     unixsock us = unixlisten(fname, 10);
-    if(!us) {
-        perror("Cannot bind to file");
-        return 1;
-    }
+    if(!us)
+        return -1;
     /* Process new registrations as they arrive. */
     while(1) {
         unixsock s = unixaccept(us, -1);

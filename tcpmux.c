@@ -121,7 +121,3 @@ void tcpmuxclose(tcpmuxsock s) {
     free(s);
 }
 
-TCPMUX_EXPORT void tcpmuxd(const char *addr, int port) {
-    assert(0);
-}
-
