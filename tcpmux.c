@@ -24,6 +24,7 @@
 
 #include <assert.h>
 #include <libmill.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -39,37 +40,58 @@ struct tcpmuxsock {
 };
 
 tcpmuxsock tcpmuxlisten(int port, const char *service, int64_t deadline) {
+    /* Connect to tcpmuxd. */
     char fname[64];
     snprintf(fname, sizeof(fname), "/tmp/tcpmuxd.%d", port);
     unixsock s = unixconnect(fname);
     if(!s)
         return NULL;
-    unixsend(s, service, strlen(service), -1);
-    assert(errno == 0);
-    unixsend(s, "\r\n", 2, -1);
-    assert(errno == 0);
-    unixflush(s, -1);
-    assert(errno == 0);
+    /* Send registration request to tcpmuxd. */
+    unixsend(s, service, strlen(service), deadline);
+    if(errno != 0)
+        goto error;
+    unixsend(s, "\r\n", 2, deadline);
+    if(errno != 0)
+        goto error;
+    unixflush(s, deadline);
+    if(errno != 0)
+        goto error;
+    /* Get reply from tcpmuxd. */
     char reply[256];
-    unixrecv(s, reply, 1, -1);
-    assert(errno == 0);
+    size_t sz = unixrecvuntil(s, reply, sizeof(reply), "\n", 1, deadline);
+    if(errno != 0 || sz < 3 || reply[sz - 2] != '\r' || reply[sz - 1] != '\n')
+        goto error;
     if(reply[0] != '+') {
         unixclose(s);
-        errno = ECONNRESET;
+        errno = EADDRINUSE; /* TODO: There are multiple reasons... */
         return NULL;
     }
-    unixrecvuntil(s, reply, sizeof(reply), "\n", 1, -1);
-    assert(errno == 0);
 
     struct tcpmuxsock *res = malloc(sizeof(struct tcpmuxsock));
-    assert(res);
+    if(!res) {
+        unixclose(s);
+        errno = ENOMEM;
+        return NULL;
+    }
     res->fd = unixdetach(s);
+    assert(res->fd != -1);
     return res;
+error:
+    unixclose(s);
+    errno = ECONNRESET;
+    return NULL;
 }
 
 tcpsock tcpmuxaccept(tcpmuxsock s, int64_t deadline) {
-    int rc = fdwait(s->fd, FDW_IN, -1);
-    assert(rc == FDW_IN);
+    int rc = fdwait(s->fd, FDW_IN, deadline);
+    if(rc == 0) {
+        errno = ETIMEDOUT;
+        return NULL;
+    }
+    if(rc & FDW_ERR)
+        goto error;
+    assert(rc & FDW_IN);
+    /* Get one byte from TCPMUX daemon. A file descriptor should be attached. */
     char buf[1];
     struct iovec iov;
     iov.iov_base = buf;
@@ -82,8 +104,8 @@ tcpsock tcpmuxaccept(tcpmuxsock s, int64_t deadline) {
     msg.msg_control = control;
     msg.msg_controllen = sizeof(control);
     rc = recvmsg(s->fd, &msg, 0);
-    assert(rc == 1);
-    assert(buf[0] == 0x55);
+    if(rc != 1 || buf[0] != 0x55)
+        goto error;
     /* Loop over the auxiliary data to find the embedded file descriptor. */
     int fd = -1;
     struct cmsghdr *cmsg = CMSG_FIRSTHDR(&msg);
@@ -94,30 +116,50 @@ tcpsock tcpmuxaccept(tcpmuxsock s, int64_t deadline) {
         }
         cmsg = CMSG_NXTHDR(&msg, cmsg);
     }
-    assert(fd != -1);
+    if(fd == -1)
+        goto error;
     return tcpattach(fd);
+error:
+    close(s->fd);
+    s->fd = -1;
+    errno = ECONNRESET;
+    return NULL;
 }
 
 tcpsock tcpmuxconnect(ipaddr addr, const char *service, int64_t deadline) {
-    tcpsock s = tcpconnect(addr, -1);
-    assert(s);
-    tcpsend(s, service, strlen(service), -1);
-    assert(errno == 0);
-    tcpsend(s, "\r\n", 2, -1);
-    assert(errno == 0);
-    tcpflush(s, -1);
-    assert(errno == 0);
+    tcpsock s = tcpconnect(addr, deadline);
+    /* Send the TCPMUX request. */
+    if(!s)
+        return NULL;
+    tcpsend(s, service, strlen(service), deadline);
+    if(errno != 0)
+        goto error;
+    tcpsend(s, "\r\n", 2, deadline);
+    if(errno != 0)
+        goto error;
+    tcpflush(s, deadline);
+    if(errno != 0)
+        goto error;
+    /* Receive the TCPMUX reply. */
     char buf[256];
-    size_t sz = tcprecvuntil(s, buf, sizeof(buf), "\n", 1, -1);
-    assert(errno == 0);
-    assert(sz >= 3 && buf[sz - 2] == '\r' && buf[sz - 1] == '\n');
-    buf[sz - 2] = 0;
-    assert(buf[0] == '+');
+    size_t sz = tcprecvuntil(s, buf, sizeof(buf), "\n", 1, deadline);
+    if(errno != 0)
+        goto error;
+    if(sz < 3 || buf[sz - 2] != '\r' || buf[sz - 1] != '\n' || buf[0] != '+') {
+        errno = ECONNREFUSED;
+        goto error;
+    }
     return s;
+error:;
+    int err = errno;
+    tcpclose(s);
+    errno = err;
+    return NULL;
 }
 
 void tcpmuxclose(tcpmuxsock s) {
-    close(s->fd);
+    if(s->fd != -1)
+        close(s->fd);
     free(s);
 }
 
