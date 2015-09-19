@@ -96,7 +96,7 @@ void tcphandler(tcpsock s) {
     success = 1;
 reply:
     /* Reply to the TCP peer. */
-    s = tcpattach(fd);
+    s = tcpattach(fd, 0);
     const char *msg = success ? "+\r\n" : "-Service not found\r\n";
     tcpsend(s, msg, strlen(msg), -1);
     if(errno != 0) {
@@ -161,7 +161,7 @@ void unixhandler(unixsock s) {
     errmsg = "+\r\n";
 reply:
     /* Reply to the service. */
-    s = unixattach(fd);
+    s = unixattach(fd, 0);
     if(!s) {
         unixclose(s);
         return;
