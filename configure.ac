@@ -49,8 +49,8 @@ AC_SUBST(TCPMUX_ABI_VERSION)
 AC_SUBST(TCPMUX_PACKAGE_VERSION)
 AC_SUBST(TCPMUX_LIBTOOL_VERSION)
 
-AC_MSG_NOTICE([tcpmux package version: $MILL_PACKAGE_VERSION])
-AC_MSG_NOTICE([tcpmux ABI version: $MILL_ABI_VERSION])
+AC_MSG_NOTICE([tcpmux package version: $TCPMUX_PACKAGE_VERSION])
+AC_MSG_NOTICE([tcpmux ABI version: $TCPMUX_ABI_VERSION])
 
 ################################################################################
 #  Check the compilers.                                                        #
